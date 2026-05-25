@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "kb-toolkit": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server", "--transport", "stdio"],
+      "env": {
+        "OPENAI_API_KEY": "sk-...",
+        "KB_CHROMA_DIR": "/absolute/path/to/.chroma"
+      }
+    }
+  }
+}
