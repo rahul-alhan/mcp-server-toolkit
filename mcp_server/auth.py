@@ -5,6 +5,8 @@ up the full FastMCP server.
 """
 from __future__ import annotations
 
+import hmac
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -28,6 +30,6 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         if not header.startswith("Bearer "):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         token = header.removeprefix("Bearer ").strip()
-        if token != self.expected_token:
+        if not hmac.compare_digest(token, self.expected_token):
             return JSONResponse({"error": "forbidden"}, status_code=403)
         return await call_next(request)

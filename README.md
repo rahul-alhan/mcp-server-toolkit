@@ -84,7 +84,11 @@ python -m kb.build_index --docs docs/ --persist .chroma/
 python -m mcp_server.server --transport stdio
 
 # 3. Or run as an HTTP/SSE server (for remote/team use)
+#    Defaults to --bind 127.0.0.1 (loopback only). To expose on the LAN, pass
+#    --bind 0.0.0.0 — a stderr warning will be logged and MCP_AUTH_TOKEN must be set.
+export MCP_AUTH_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
 python -m mcp_server.server --transport http --port 8765
+# python -m mcp_server.server --transport http --port 8765 --bind 0.0.0.0   # LAN-exposed
 
 # 4. Inspect tools/resources interactively without an LLM
 npx @modelcontextprotocol/inspector python -m mcp_server.server
@@ -161,7 +165,8 @@ mcp-server-toolkit/
 
 - The server **does not execute arbitrary code** — tools are an explicit whitelist
 - IDs in `get_document_by_id` are validated against the collection — no path traversal
-- HTTP transport requires `MCP_AUTH_TOKEN` env var (bearer-token auth); stdio is trusted by virtue of being a child process
+- HTTP transport requires `MCP_AUTH_TOKEN` env var (bearer-token auth) and uses `hmac.compare_digest` for constant-time token comparison; stdio is trusted by virtue of being a child process
+- HTTP transport binds to `127.0.0.1` by default — pass `--bind 0.0.0.0` to expose on other interfaces (warning logged to stderr)
 - Inputs are size-capped (`max_query_chars=2000`) to prevent prompt-injection-via-resource
 
 ---

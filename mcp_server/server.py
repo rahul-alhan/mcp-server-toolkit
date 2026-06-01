@@ -8,7 +8,6 @@ import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from kb.retriever import get_document_by_id
 from .prompts import CITE_WITH_SOURCES, COMPARE_DOCUMENTS
 from .resources import resource_collection, resource_collections, resource_document
 from .tools import (
@@ -78,15 +77,25 @@ def cite_with_sources(question: str) -> str:
 
 @mcp.prompt()
 def compare_documents(a_id: int, b_id: int) -> str:
-    a = get_document_by_id(a_id) or {"text": "<not found>"}
-    b = get_document_by_id(b_id) or {"text": "<not found>"}
-    return COMPARE_DOCUMENTS.format(a_id=a_id, b_id=b_id, a_text=a["text"], b_text=b["text"])
+    # tool_get_document_by_id always returns a truthy dict — on miss it returns
+    # {"error": "not_found", "chunk_id": ...} which has no "text" key, so the
+    # old `or {...}` fallback never fired and we'd KeyError. Pull "text" defensively.
+    a = tool_get_document_by_id(a_id)
+    b = tool_get_document_by_id(b_id)
+    a_text = a["text"] if "text" in a else "<not found>"
+    b_text = b["text"] if "text" in b else "<not found>"
+    return COMPARE_DOCUMENTS.format(a_id=a_id, b_id=b_id, a_text=a_text, b_text=b_text)
 
 
 # ---- entry point ----------------------------------------------------
 
-def _run_http_with_bearer_auth(port: int) -> None:
-    """Wrap the SSE app in BearerAuthMiddleware and serve over uvicorn."""
+def _run_http_with_bearer_auth(port: int, bind: str = "127.0.0.1") -> None:
+    """Wrap the SSE app in BearerAuthMiddleware and serve over uvicorn.
+
+    Binds to loopback (127.0.0.1) by default. Pass a different bind address
+    (e.g. "0.0.0.0") only when you really want the server reachable on other
+    interfaces — that path also emits a stderr warning.
+    """
     import uvicorn
     from starlette.middleware import Middleware
 
@@ -99,25 +108,40 @@ def _run_http_with_bearer_auth(port: int) -> None:
             "Set it or use --transport stdio."
         )
 
+    if bind != "127.0.0.1":
+        log.warning(
+            "HTTP server binding to %s — reachable on non-loopback interfaces. "
+            "Ensure MCP_AUTH_TOKEN is strong and the port is firewalled.",
+            bind,
+        )
+
     app = mcp.sse_app()
     app.user_middleware.insert(
         0, Middleware(BearerAuthMiddleware, expected_token=expected)
     )
     app.middleware_stack = app.build_middleware_stack()
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(app, host=bind, port=port, log_level="info")
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument(
+        "--bind",
+        default="127.0.0.1",
+        help=(
+            "HTTP bind address (default 127.0.0.1 — loopback only). "
+            "Set to 0.0.0.0 to expose on all interfaces; a stderr warning will be logged."
+        ),
+    )
     args = p.parse_args()
 
     log.info("Starting kb-toolkit MCP server (transport=%s)", args.transport)
     if args.transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        _run_http_with_bearer_auth(args.port)
+        _run_http_with_bearer_auth(args.port, bind=args.bind)
 
 
 if __name__ == "__main__":
